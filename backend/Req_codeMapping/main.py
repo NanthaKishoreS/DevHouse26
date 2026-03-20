@@ -75,9 +75,9 @@ SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY") or os.getenv("VITE_SUPABASE_ANON_KEY")
 
 if not SUPABASE_URL or not SUPABASE_ANON_KEY:
-    raise RuntimeError("Missing Supabase credentials in .env.local")
+    print("WARNING: Missing Supabase credentials! The service will not be able to sync.")
 
-BASE_REST_URL = f"{SUPABASE_URL.rstrip('/')}/rest/v1"
+BASE_REST_URL = f"{(SUPABASE_URL or '').rstrip('/')}/rest/v1"
 DEFAULT_HEADERS = {
     "apikey": SUPABASE_ANON_KEY,
     "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
