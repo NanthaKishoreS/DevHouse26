@@ -4,14 +4,15 @@ import re
 from pathlib import Path
 from typing import Any
 from urllib import error, parse, request
+from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
-ENV_PATH = ROOT_DIR / ".env.local"
+ROOT_DIR = Path(__file__).resolve().parent
+load_dotenv()
 
 STOP_WORDS = {
     "a",
@@ -68,22 +69,10 @@ MIN_SCORE = 5.8
 MAX_MATCHES_PER_ISSUE = 8
 
 
-def load_env_file() -> None:
-    if not ENV_PATH.exists():
-        return
+# Environment Variables are now loaded via load_dotenv()
 
-    for line in ENV_PATH.read_text().splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        os.environ.setdefault(key, value)
-
-
-load_env_file()
-
-SUPABASE_URL = os.getenv("VITE_SUPABASE_URL")
-SUPABASE_ANON_KEY = os.getenv("VITE_SUPABASE_ANON_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY") or os.getenv("VITE_SUPABASE_ANON_KEY")
 
 if not SUPABASE_URL or not SUPABASE_ANON_KEY:
     raise RuntimeError("Missing Supabase credentials in .env.local")
@@ -95,9 +84,10 @@ DEFAULT_HEADERS = {
 }
 
 app = FastAPI(title="Supabase Commit Sync API")
+# Allow all origins for production access or specific ones if provided
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
