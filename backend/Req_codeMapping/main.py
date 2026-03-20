@@ -2,7 +2,7 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Union
 from urllib import error, parse, request
 from dotenv import load_dotenv
 
@@ -430,7 +430,7 @@ def normalize_spaces(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def get_rows(table: str, select: str, order: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+def get_rows(table: str, select: str, order: Optional[str] = None, limit: Optional[int] = None) -> list[dict[str, Any]]:
     params = {"select": select}
     if order:
         params["order"] = order
@@ -452,7 +452,7 @@ def patch_row(table: str, filters: str, payload: dict[str, Any]) -> Any:
     return request_json("PATCH", f"{BASE_REST_URL}/{table}?{filters}", payload=payload, headers=headers)
 
 
-def request_json(method: str, url: str, payload: Any | None = None, headers: dict[str, str] | None = None) -> Any:
+def request_json(method: str, url: str, payload: Optional[Any] = None, headers: Optional[dict[str, str]] = None) -> Any:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = request.Request(url, method=method, headers=headers or DEFAULT_HEADERS, data=data)
     try:
