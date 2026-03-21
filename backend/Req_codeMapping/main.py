@@ -142,19 +142,56 @@ def sync_commit_links() -> dict[str, Any]:
         limit=500,
     )
 
+    all_potential_links: list[dict[str, Any]] = []
+    for issue in issues:
+        matches = rank_issue_matches(issue, events)
+        for match in matches:
+            all_potential_links.append(
+                {
+                    "issue_id": issue["issue_id"],
+                    "commit_id": match["commit_id"],
+                    "score": match["score"],
+                    "reasons": match.get("reasons", []),
+                }
+            )
+
+    # Sort all potential links across all issues by score (highest first)
+    all_potential_links.sort(key=lambda x: x["score"], reverse=True)
+
+    assigned_commits = set()
+    issue_to_commits: dict[str, list[str]] = {str(issue["issue_id"]): [] for issue in issues}
+    
+    # Store reasoning for the dashboard response
+    issue_to_matches: dict[str, list[dict[str, Any]]] = {str(issue["issue_id"]): [] for issue in issues}
+
+    for link in all_potential_links:
+        issue_id_str = str(link["issue_id"])
+        commit_id = link["commit_id"]
+        
+        # Ensure a commit is only mapped to ONE requirement (the one with highest score)
+        if commit_id not in assigned_commits and len(issue_to_commits[issue_id_str]) < MAX_MATCHES_PER_ISSUE:
+            issue_to_commits[issue_id_str].append(commit_id)
+            issue_to_matches[issue_id_str].append({
+                "commit_id": commit_id,
+                "score": link["score"],
+                "reasons": link["reasons"]
+            })
+            assigned_commits.add(commit_id)
+
     updates: list[dict[str, Any]] = []
     matched_issue_count = 0
     total_linked_commits = 0
 
     for issue in issues:
-        matches = rank_issue_matches(issue, events)
-        matched_commit_ids = [match["commit_id"] for match in matches]
+        issue_id = str(issue["issue_id"])
+        matched_commit_ids = issue_to_commits[issue_id]
         existing = issue.get("commits") or []
 
-        if matched_commit_ids != existing:
+        # Only patch if the list of commits has changed
+        if sorted(matched_commit_ids) != sorted(existing):
             patch_row(
                 "req_code_mapping",
-                f"issue_id=eq.{parse.quote(str(issue['issue_id']))}",
+                f"issue_id=eq.{parse.quote(issue_id)}",
                 {"commits": matched_commit_ids},
             )
 
@@ -162,7 +199,11 @@ def sync_commit_links() -> dict[str, Any]:
             matched_issue_count += 1
             total_linked_commits += len(matched_commit_ids)
 
-        updates.append({"issue_id": issue["issue_id"], "commits": matched_commit_ids, "matches": matches})
+        updates.append({
+            "issue_id": issue_id,
+            "commits": matched_commit_ids,
+            "matches": issue_to_matches[issue_id]
+        })
 
     return {
         "updated_issues": len(updates),
