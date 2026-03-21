@@ -84,17 +84,36 @@ DEFAULT_HEADERS = {
 }
 
 app = FastAPI(title="Supabase Commit Sync API")
-# Allow all origins for production access or specific ones if provided
-FRONTEND_URL = os.getenv("FRONTEND_URL") or "http://localhost:5173"
+
+
+def parse_allowed_origins() -> list[str]:
+    configured = os.getenv("ALLOWED_ORIGINS", "")
+    parsed = [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
+
+    frontend_url = (os.getenv("FRONTEND_URL") or "http://localhost:5173").rstrip("/")
+    default_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        frontend_url,
+    ]
+
+    seen: set[str] = set()
+    origins: list[str] = []
+    for origin in [*default_origins, *parsed]:
+        if origin and origin not in seen:
+            seen.add(origin)
+            origins.append(origin)
+    return origins
+
+
+ALLOWED_ORIGINS = parse_allowed_origins()
+AUTO_SYNC_ON_DASHBOARD = os.getenv("AUTO_SYNC_ON_DASHBOARD", "false").strip().lower() == "true"
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        FRONTEND_URL.rstrip("/")
-    ],
-    allow_credentials=True,  # Re-enabling because we are using specific origins now!
+    allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -107,7 +126,6 @@ def health() -> dict[str, str]:
 
 @app.get("/api/dashboard")
 def dashboard() -> dict[str, Any]:
-    sync_result = sync_commit_links()
     issues = get_rows(
         "req_code_mapping",
         "issue_id,title,status,issue_type,priority,project_key,assignee_email,reporter_email,commits,created_at,updated_at",
@@ -120,6 +138,17 @@ def dashboard() -> dict[str, Any]:
         order="timestamp.desc",
         limit=100,
     )
+
+    sync_result = summarize_current_links(issues)
+    if AUTO_SYNC_ON_DASHBOARD:
+        try:
+            sync_result = sync_commit_links()
+        except HTTPException as exc:
+            sync_result = {
+                **sync_result,
+                "warning": f"Auto-sync skipped: {exc.detail}",
+            }
+
     return {"sync": sync_result, "issues": issues, "events": events}
 
 
@@ -210,6 +239,24 @@ def sync_commit_links() -> dict[str, Any]:
         "matched_issues": matched_issue_count,
         "linked_commits": total_linked_commits,
         "updates": updates,
+    }
+
+
+def summarize_current_links(issues: list[dict[str, Any]]) -> dict[str, Any]:
+    matched_issues = 0
+    linked_commits = 0
+
+    for issue in issues:
+        commits = issue.get("commits") or []
+        if commits:
+            matched_issues += 1
+            linked_commits += len(commits)
+
+    return {
+        "updated_issues": 0,
+        "matched_issues": matched_issues,
+        "linked_commits": linked_commits,
+        "updates": [],
     }
 
 
