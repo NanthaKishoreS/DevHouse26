@@ -112,16 +112,17 @@ class GitListener {
                     // Attempt to send to Supabase
                     const success = await this.webhookSender.sendToSupabase(event);
                     if (success) {
-                        // Move to synced folder
-                        const destPath = path.join(syncedDir, file);
-                        fs.renameSync(filePath, destPath);
-                        extension_1.logger.appendLine(`[SYNC] Successfully synced and moved ${file}`);
+                        const moved = this.moveToSynced(filePath);
+                        if (moved) {
+                            extension_1.logger.appendLine(`[SYNC] Successfully synced and moved ${file}`);
+                        }
                     }
                 }
                 catch (err) {
                     extension_1.logger.appendLine(`[SYNC] Failed to sync ${file}: ${err}`);
                 }
             }
+            await this.reconcileSupabaseWithLocalMirror(repoPath);
         }
         catch (err) {
             extension_1.logger.appendLine(`[ERROR] Failed to scan events directory: ${err}`);
@@ -158,6 +159,7 @@ class GitListener {
                 const success = await this.webhookSender.sendToSupabase(supabaseEvent);
                 if (success && filePath) {
                     this.moveToSynced(filePath);
+                    await this.reconcileSupabaseWithLocalMirror(repoPath);
                 }
                 // Reset for the next session
                 this.aggregator.resetSession();
@@ -320,11 +322,78 @@ class GitListener {
                 fs.mkdirSync(syncedDir, { recursive: true });
             }
             const destPath = path.join(syncedDir, fileName);
-            fs.renameSync(filePath, destPath);
+            if (fs.existsSync(destPath)) {
+                fs.unlinkSync(destPath);
+            }
+            fs.copyFileSync(filePath, destPath);
+            fs.unlinkSync(filePath);
             extension_1.logger.appendLine(`[SYNC] Moved to synced folder: ${fileName}`);
+            return true;
         }
         catch (err) {
             extension_1.logger.appendLine(`[ERROR] Failed to move file to synced: ${err}`);
+            return false;
+        }
+    }
+    getEventStoragePaths(repoPath) {
+        const eventsDir = path.join(repoPath, '.devpulse', 'events');
+        const syncedDir = path.join(eventsDir, 'synced');
+        return { eventsDir, syncedDir };
+    }
+    loadEventFileMap(directory) {
+        const events = new Map();
+        if (!fs.existsSync(directory)) {
+            return events;
+        }
+        for (const file of fs.readdirSync(directory)) {
+            const filePath = path.join(directory, file);
+            if (!file.endsWith('.json')) {
+                continue;
+            }
+            if (!fs.statSync(filePath).isFile()) {
+                continue;
+            }
+            try {
+                const event = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                if (event.commit_id) {
+                    events.set(event.commit_id, event);
+                }
+            }
+            catch (error) {
+                extension_1.logger.appendLine(`[SYNC] Failed to read local event ${filePath}: ${error}`);
+            }
+        }
+        return events;
+    }
+    collectLocalEventMirror(repoPath) {
+        const { eventsDir, syncedDir } = this.getEventStoragePaths(repoPath);
+        const pendingEvents = this.loadEventFileMap(eventsDir);
+        const syncedEvents = this.loadEventFileMap(syncedDir);
+        for (const [commitId, event] of syncedEvents.entries()) {
+            if (!pendingEvents.has(commitId)) {
+                pendingEvents.set(commitId, event);
+            }
+        }
+        return pendingEvents;
+    }
+    async reconcileSupabaseWithLocalMirror(repoPath) {
+        const localEvents = this.collectLocalEventMirror(repoPath);
+        const expectedCommitIds = new Set(localEvents.keys());
+        extension_1.logger.appendLine(`[SYNC] Reconciling Supabase with local mirror. Local events: ${expectedCommitIds.size}`);
+        for (const event of localEvents.values()) {
+            const success = await this.webhookSender.sendToSupabase(event);
+            if (!success) {
+                extension_1.logger.appendLine(`[SYNC] Failed to mirror local event ${event.commit_id} to Supabase.`);
+            }
+        }
+        const remoteCommitIds = await this.webhookSender.fetchRemoteCommitIds(this.config.developerId, this.config.repositoryName);
+        for (const commitId of remoteCommitIds) {
+            if (!expectedCommitIds.has(commitId)) {
+                const deleted = await this.webhookSender.deleteEventByIdentity(commitId, this.config.developerId, this.config.repositoryName);
+                if (deleted) {
+                    extension_1.logger.appendLine(`[SYNC] Removed remote event with no local JSON mirror: ${commitId}`);
+                }
+            }
         }
     }
     dispose() {

@@ -44,13 +44,19 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showInformationMessage(`DevIntel: Current Session Duration: ${session.editing_duration_minutes}m. Lines added: ${session.lines_added}`);
     });
 
+    const presenceTestCommand = vscode.commands.registerCommand('devintel.runPresenceCheck', async () => {
+        cameraMonitor.triggerPresenceCheck();
+        vscode.window.showInformationMessage('DevIntel: Presence check triggered. See the "Developer Intelligence" output for details.');
+    });
+
     context.subscriptions.push(
         activityMonitor,
         gitListener,
         cameraMonitor,
         jiraPicker,
         selectJiraCommand,
-        testCommand
+        testCommand,
+        presenceTestCommand
     );
 }
 

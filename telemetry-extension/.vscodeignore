@@ -3,6 +3,7 @@
 out/**
 node_modules/**
 src/**
+!src/detect_face.py
 .gitignore
 .yarnrc
 tsconfig.json

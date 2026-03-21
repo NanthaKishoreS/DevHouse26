@@ -22,6 +22,10 @@
       {
         "command": "devintel.sendTestPing",
         "title": "DevIntel: Show Current Session Telemetry"
+      },
+      {
+        "command": "devintel.runPresenceCheck",
+        "title": "DevIntel: Run Presence Check"
       }
     ],
     "configuration": {
@@ -51,6 +55,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enable sending telemetry events."
+        },
+        "devintel.pythonCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Python launcher for face detection, for example 'py' or 'python'."
         }
       }
     }

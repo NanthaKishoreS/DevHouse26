@@ -37,7 +37,11 @@ async function activate(context) {
         const session = aggregator.getSession();
         vscode.window.showInformationMessage(`DevIntel: Current Session Duration: ${session.editing_duration_minutes}m. Lines added: ${session.lines_added}`);
     });
-    context.subscriptions.push(activityMonitor, gitListener, cameraMonitor, jiraPicker, selectJiraCommand, testCommand);
+    const presenceTestCommand = vscode.commands.registerCommand('devintel.runPresenceCheck', async () => {
+        cameraMonitor.triggerPresenceCheck();
+        vscode.window.showInformationMessage('DevIntel: Presence check triggered. See the "Developer Intelligence" output for details.');
+    });
+    context.subscriptions.push(activityMonitor, gitListener, cameraMonitor, jiraPicker, selectJiraCommand, testCommand, presenceTestCommand);
 }
 function deactivate() {
     // Clean up
