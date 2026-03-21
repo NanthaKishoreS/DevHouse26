@@ -170,6 +170,11 @@ def sync_commit_links() -> dict[str, Any]:
         order="timestamp.asc",
         limit=500,
     )
+    valid_event_commit_ids = {
+        str(event.get("commit_id"))
+        for event in events
+        if event.get("commit_id") is not None and str(event.get("commit_id")).strip()
+    }
 
     all_potential_links: list[dict[str, Any]] = []
     for issue in issues:
@@ -214,7 +219,11 @@ def sync_commit_links() -> dict[str, Any]:
     for issue in issues:
         issue_id = str(issue["issue_id"])
         matched_commit_ids = issue_to_commits[issue_id]
-        existing = issue.get("commits") or []
+        existing = [
+            str(commit_id)
+            for commit_id in (issue.get("commits") or [])
+            if commit_id is not None and str(commit_id).strip() and str(commit_id) in valid_event_commit_ids
+        ]
 
         # Only patch if the list of commits has changed
         if sorted(matched_commit_ids) != sorted(existing):
