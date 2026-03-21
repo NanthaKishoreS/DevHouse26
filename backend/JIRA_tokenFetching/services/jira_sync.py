@@ -78,11 +78,37 @@ class JiraClient:
         except Exception as e:
             print(f"[ERROR] Supabase delete failed for {issue_id}: {e}")
 
+    def delete_missing_project_issues(self, active_issue_ids: set[str]):
+        """Removes stale issues for the configured Jira project that no longer exist in Jira."""
+        if not self.project:
+            return
+
+        try:
+            response = (
+                self.supabase.table("req_code_mapping")
+                .select("issue_id")
+                .eq("project_key", self.project)
+                .execute()
+            )
+            existing_issue_ids = {
+                row["issue_id"]
+                for row in (response.data or [])
+                if row.get("issue_id")
+            }
+            stale_issue_ids = existing_issue_ids - active_issue_ids
+
+            for issue_id in stale_issue_ids:
+                print(f"[DEBUG] Removing stale issue from Supabase: {issue_id}")
+                self.delete_from_supabase(issue_id)
+        except Exception as e:
+            print(f"[ERROR] Failed to reconcile deleted Jira issues for project {self.project}: {e}")
+
     def sync_all_tickets(self) -> int:
         """Fetches all tickets from the defined Jira project and syncs them to Supabase."""
         synced_count = 0
         next_page_token = None
         max_results = 100
+        active_issue_ids: set[str] = set()
         
         search_url = f"{self.url}/rest/api/3/search/jql"
         print(f"[DEBUG] Hitting Jira URL: {search_url}")
@@ -107,10 +133,17 @@ class JiraClient:
             issues = data.get("issues", [])
             print(f"[DEBUG] Fetched {len(issues)} issues from Jira")
             if not issues:
-                print(f"[DEBUG] No issues found for project {self.project}")
+                print(f"[DEBUG] No issues found in this page for project {self.project}")
+                if not next_page_token and synced_count == 0:
+                    self.delete_missing_project_issues(active_issue_ids)
                 break
             
             records = [self.get_issue_data(issue) for issue in issues]
+            active_issue_ids.update(
+                record["issue_id"]
+                for record in records
+                if record.get("issue_id")
+            )
             print(f"[DEBUG] Attempting to upsert {len(records)} records to Supabase")
             self.upsert_to_supabase(records)
             
@@ -119,6 +152,7 @@ class JiraClient:
             
             if not next_page_token:
                 break
-                
+
+        self.delete_missing_project_issues(active_issue_ids)
         print(f"[DEBUG] Sync completed. Total synced: {synced_count}")
         return synced_count
